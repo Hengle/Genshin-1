@@ -15,6 +15,11 @@ Shader "XHH/Genshin"
         _ShadowColor ("Shadow Color", Color) = (0, 0, 0, 1)
         _LightSmooth ("Light Smooth", range(0, 1)) = 0.1
 
+        [Header(Rim)]//边缘光
+        _RimColor ("Rim Color", Color) = (1, 1, 1, 1)
+        _MinRange ("MinRange", Range(0, 1)) = 0
+        _MaxRange ("MaxRange", Range(0, 1)) = 1
+
         [Header(Outline)]
         _OutlineWidth ("_OutlineWidth (World Space)", Range(0, 4)) = 1
         _OutlineColor ("_OutlineColor", Color) = (0.5, 0.5, 0.5, 1)
@@ -32,6 +37,9 @@ Shader "XHH/Genshin"
     half3 _ShadowColor;
     half _LightSmooth;
 
+    // rim
+    half3 _RimColor;
+    float _MinRange, _MaxRange;
 
     // outline
     float _OutlineWidth;
@@ -86,21 +94,6 @@ Shader "XHH/Genshin"
                 float3 normalWS: NORMAL;
             };
 
-            static float2 sobelSamplePoints[9] = {
-                float2(-1, 1), float2(0, 1), float2(1, 1),
-                float2(-1, 0), float2(0, 0), float2(1, 0),
-                float2(-1, -1), float2(0, -1), float2(1, -1)
-            };
-
-            static float sobelXMatrix[9] = {
-                - 1, 0, 1,
-                - 2, 0, 2,
-                - 1, 0, 1
-            };
-
-            
-            SAMPLER(_CameraOpaqueTexture);
-
             Varyings vert(Attributes input)
             {
                 Varyings output;
@@ -124,28 +117,16 @@ Shader "XHH/Genshin"
                 ToonLightingData lightingData = InitToonLightingData(input.positionWS, input.normalWS);
                 half3 finalRGB = ShadeAllLight(surfaceData, lightingData);
 
-
                 float2 screenUV = (input.positionCS.xy / _ScreenParams.xy);
-                // return half4(screenUV, 0, 0);
-                float2 sobel = 0;
-                for (int i = 0; i < 9; i++)
-                {
-                    float depth = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, sampler_CameraDepthTexture, screenUV + sobelSamplePoints[i] * _OutlineWidth);
-                    depth = LinearEyeDepth(depth, _ZBufferParams);
-                    // float depth = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, screenUV + sobelSamplePoints[i] * _OutlineWidth);
-                    // float depth = tex2D(_CameraOpaqueTexture, screenUV + sobelSamplePoints[i] * _OutlineWidth);
-                    sobel += depth * float2(sobelXMatrix[i], sobelXMatrix[i]);
-                }
 
-                
-                Light mainLight = GetMainLight();
-                float NdotL = max(0, dot(input.normalWS, mainLight.direction));
+                half3 depthOffsetRim = DepthOffsetRim(input.positionCS, lightingData, _OutlineWidth, _MinRange, _MaxRange, _RimColor);
+                finalRGB += depthOffsetRim;
 
-                float edgeHeight = saturate(pow(length(sobel), 4));
-                half3 edgeColor = _OutlineColor * edgeHeight * NdotL;
-                return edgeHeight * NdotL;
+                half3 edgeHighLight = EdgeHighLight(screenUV, lightingData, GetMainLight(), _RimColor, _OutlineWidth * 0.001);
+                // finalRGB += edgeHighLight;
 
-                return half4(finalRGB + edgeColor, 1);
+
+                return half4(finalRGB, 1);
             }
             
             ENDHLSL
